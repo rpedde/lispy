@@ -2,12 +2,28 @@
 
 import copy
 import operator
+import readline
+import sys
+import logging
+import traceback
+
+DEBUG=False
+
+def set_loglevel(level):
+    if not isinstance(level, basestring) or \
+       level.upper() not in ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']:
+        raise SyntaxError('log level must be CRITICAL, ERROR, WARNING, INFO, or DEBUG')
+
+    logging.getLogger().setLevel(getattr(logging, level.upper()))
+    return 0
 
 class Environment(object):
     def __init__(self, env={}):
         self.env = env
 
     def get(self, symbol):
+        logging.debug('looking up symbol "%s"' % symbol)
+
         if symbol in self.env:
             return self.env[symbol]
 
@@ -35,26 +51,28 @@ class Function(object):
 
 
 class InternalFunction(Function):
-    def __init__(self, fn, translate_types=True):
+    def __init__(self, name, fn, translate_types=True, translate_return=True):
+        self.name = name
         self.fn = fn;
         self.translate = translate_types
+        self.translate_return = translate_return
 
     def eval(self, env, *args):
-        real_args = args
+        real_args = [arg.eval(env) for arg in args]
 
         if self.translate:
-            real_args = []
-            for arg in args:
-                if isinstance(arg, SExpr):
-                    real_args.append(arg.eval(env).eval(env))
-                else:
-                    real_args.append(arg.eval(env))
+            real_args = [arg.pyvalue(env) for arg in real_args]
 
-        print 'Evaling function %s with args %s' % (self.fn, real_args)
-        retval = Constant(self.fn(*real_args))
-        print 'Result: %s' % retval
+        logging.info('Evaling function "%s" with args %s' % (self.name, real_args))
+        retval = self.fn(*real_args)
+        logging.info('Result: %s' % retval)
+        if self.translate_return:
+            retval = Constant(retval)
+            
         return retval
 
+    def __repr__(self):
+        return 'Fn: %s' % self.name
 
 class SExpr(Token):
     def __init__(self, value):
@@ -63,6 +81,9 @@ class SExpr(Token):
     def __repr__(self):
         return 'Sexpr: %s' % self.value
 
+    def pyvalue(self, env):
+        return self.value
+        
     def eval(self, env):
         fn = None
 
@@ -73,6 +94,9 @@ class SExpr(Token):
                 (_, test, if_true, if_false) = x
                 result = if_true if test.eval(env) else if_false
                 return result.eval(env)
+            if x[0].name == 'quote':
+                # should test arity
+                return x[1]
             elif x[0].name == '':
                 pass
 
@@ -80,7 +104,7 @@ class SExpr(Token):
             fn = x[0].eval(env)
 
         if not isinstance(fn, Function):
-            raise SyntaxError('Not a function')
+            raise SyntaxError('%s: Not a function' % x[0])
 
         return fn.eval(env, *self.value[1:])
         
@@ -89,6 +113,14 @@ class Symbol(Token):
     def __init__(self, name):
         self.name = name
         
+    def pyvalue(self, env):
+        lispvalue = self.eval(env)
+
+        if isinstance(lispvalue, Function):
+            raise SyntaxError("Sorry Dave.  I can't pass functions to python functions")
+
+        return lispvalue.pyvalue(env)
+
     def eval(self, env):
         return env.get(self.name)
 
@@ -100,8 +132,14 @@ class Constant(Token):
     def __init__(self, value):
         self.value = value
 
-    def eval(self, env):
+    def pyvalue(self, env):
+        # if isinstance(self.value, Token):
+        #     return self.value.pyvalue(env)
+
         return self.value
+
+    def eval(self, env):
+        return self
 
     def __repr__(self):
         return 'Const: "%s"' % self.value
@@ -109,7 +147,7 @@ class Constant(Token):
 
 class Parser(object):
     def __init__(self, str):
-        self.tokenlist = str.replace('(', ' ( ').replace(')', ' ) ').split()
+        self.tokenlist = str.replace('(', ' ( ').replace(')', ' ) ').replace("'"," ' ").split()
         self.index=0
         self.ast = self.astize()
         
@@ -125,10 +163,10 @@ class Parser(object):
 
     def astize(self):
         token = self.next()
-        if token != '(':
-            raise SyntaxError('Expecting (')
-
-        ast = SExpr(self.read_list())
+        if token == '(':
+            ast = SExpr(self.read_list())
+        else:
+            ast = self.wrap_token(token)
 
         if not self.EOF():
             raise SyntaxError('Unexpect data beyond EOF')
@@ -138,8 +176,19 @@ class Parser(object):
     def read_list(self):
         result = []
         token = self.next()
+
         while(token != ')'):
-            if(token == '('):
+            if token == "'":
+                new_sexpr = [ Symbol('quote') ]
+    
+                token = self.next()
+                if token == '(':
+                    new_sexpr.append(SExpr(self.read_list()))
+                else:
+                    new_sexpr.append(self.wrap_token(token))
+                result.append(SExpr(new_sexpr))
+
+            elif(token == '('):
                 result.append(SExpr(self.read_list()))
             else:
                 result.append(self.wrap_token(token))
@@ -163,28 +212,46 @@ class Parser(object):
         return Symbol(token)
 
 init_env = Environment({
-    '+': InternalFunction(lambda *x: reduce(operator.add, x, 0)),
-    '-': InternalFunction(lambda *x: reduce(operator.sub, x[1:], x[0])),
-    '*': InternalFunction(lambda *x: reduce(operator.mul, x, 1)),
-    '/': InternalFunction(lambda *x: reduce(operator.div, x[1:], x[0])),
-    'car': InternalFunction(lambda x: x[0]),
-    'cdr': InternalFunction(lambda x: x[1:]),
-    'list': InternalFunction(lambda *x: SExpr(list(x))),
-    '>': InternalFunction(operator.gt),
-    '<': InternalFunction(operator.lt),
-    '>=': InternalFunction(operator.ge),
-    '<=': InternalFunction(operator.le),
-    '=': InternalFunction(operator.eq),
-    'list?': InternalFunction(lambda x: isinstance(x, SExpr)),
-    'symbol?': InternalFunction(lambda x: isinstance(x, Symbol)),
-    'quote': InternalFunction(lambda x: Constant(x), False)
+    '+': InternalFunction('+', lambda *x: reduce(operator.add, x, 0)),
+    '-': InternalFunction('-', lambda *x: reduce(operator.sub, x[1:], x[0])),
+    '*': InternalFunction('*', lambda *x: reduce(operator.mul, x, 1)),
+    '/': InternalFunction('/', lambda *x: reduce(operator.div, x[1:], x[0])),
+    'car': InternalFunction('car', lambda x: x[0], translate_return=False),
+    'cdr': InternalFunction('cdr', lambda x: SExpr(x[1:]), translate_return=False),
+    'list': InternalFunction('list', lambda *x: SExpr(list(x)), False),
+    '>': InternalFunction('>', operator.gt),
+    '<': InternalFunction('<', operator.lt),
+    '>=': InternalFunction('>=', operator.ge),
+    '<=': InternalFunction('<=', operator.le),
+    '=': InternalFunction('=', operator.eq),
+    'list?': InternalFunction('list?', lambda x: isinstance(x, SExpr), False),
+    'symbol?': InternalFunction('symbol?', lambda x: isinstance(x, Symbol), False),
+    'exit': InternalFunction('exit', lambda: sys.stdout.write("Bye!\n") or sys.exit(0)),
+    'debug': InternalFunction('debug', set_loglevel)
 })
 
 
 # testing
 if __name__ == "__main__":
-    program = "(quote (1 2 3))"
-    ast = Parser(program).ast
-    print ast
-    print ast.eval(init_env)
+    logging.basicConfig(level=logging.ERROR, format='%(message)s')
+    readline.parse_and_bind('tab: complete')
+
+    while True:
+        try:
+            line = raw_input("lispy> ")
+        except EOFError:
+            print "\nBye!"
+            sys.exit(0)
+
+        try:
+            ast = Parser(line).ast
+            logging.debug(ast)
+            print ast.eval(init_env)
+        except SyntaxError as e:
+            print 'Error: %s' % e
+        except Exception as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            print 'Internal Error: %s' % e
+            for entry in traceback.extract_tb(exc_traceback):
+                print 'Line %d: %s' % (entry[1], entry[3])
 
