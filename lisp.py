@@ -17,6 +17,9 @@ def set_loglevel(level):
     logging.getLogger().setLevel(getattr(logging, level.upper()))
     return 0
 
+def lisp_eval(env, arg):
+    return arg.eval(env)
+
 class Environment(object):
     def __init__(self, env={}):
         self.env = env
@@ -51,11 +54,18 @@ class Function(object):
 
 
 class InternalFunction(Function):
-    def __init__(self, name, fn, translate_types=True, translate_return=True):
+    def __init__(self, name, fn, translate_types=True, translate_return=True, want_environment=False):
         self.name = name
         self.fn = fn;
         self.translate = translate_types
         self.translate_return = translate_return
+        self.env = want_environment
+
+    def __repr__(self):
+        return 'Fn: %s' % self.name
+
+    def lispy_str(self):
+        return self.name
 
     def eval(self, env, *args):
         real_args = [arg.eval(env) for arg in args]
@@ -64,15 +74,17 @@ class InternalFunction(Function):
             real_args = [arg.pyvalue(env) for arg in real_args]
 
         logging.info('Evaling function "%s" with args %s' % (self.name, real_args))
+        
+        if self.env:
+            real_args.insert(0, env)
+
         retval = self.fn(*real_args)
+
         logging.info('Result: %s' % retval)
         if self.translate_return:
             retval = Constant(retval)
             
         return retval
-
-    def __repr__(self):
-        return 'Fn: %s' % self.name
 
 class SExpr(Token):
     def __init__(self, value):
@@ -80,6 +92,9 @@ class SExpr(Token):
 
     def __repr__(self):
         return 'Sexpr: %s' % self.value
+
+    def lispy_str(self):
+        return '(%s)' % ' '.join([x.lispy_str() for x in self.value])
 
     def pyvalue(self, env):
         return self.value
@@ -113,6 +128,12 @@ class Symbol(Token):
     def __init__(self, name):
         self.name = name
         
+    def __repr__(self):
+        return 'Sym: "%s"' % self.name
+
+    def lispy_str(self):
+        return self.name
+
     def pyvalue(self, env):
         lispvalue = self.eval(env)
 
@@ -124,13 +145,16 @@ class Symbol(Token):
     def eval(self, env):
         return env.get(self.name)
 
-    def __repr__(self):
-        return 'Sym: "%s"' % self.name
-
 
 class Constant(Token):
     def __init__(self, value):
         self.value = value
+
+    def __repr__(self):
+        return 'Const: "%r"' % self.value
+
+    def lispy_str(self):
+        return '%s' % self.value
 
     def pyvalue(self, env):
         # if isinstance(self.value, Token):
@@ -140,9 +164,6 @@ class Constant(Token):
 
     def eval(self, env):
         return self
-
-    def __repr__(self):
-        return 'Const: "%s"' % self.value
 
 
 class Parser(object):
@@ -227,7 +248,8 @@ init_env = Environment({
     'list?': InternalFunction('list?', lambda x: isinstance(x, SExpr), False),
     'symbol?': InternalFunction('symbol?', lambda x: isinstance(x, Symbol), False),
     'exit': InternalFunction('exit', lambda: sys.stdout.write("Bye!\n") or sys.exit(0)),
-    'debug': InternalFunction('debug', set_loglevel)
+    'debug': InternalFunction('debug', set_loglevel),
+    'eval': InternalFunction('eval', lisp_eval, False, False, True)
 })
 
 
@@ -246,7 +268,7 @@ if __name__ == "__main__":
         try:
             ast = Parser(line).ast
             logging.debug(ast)
-            print ast.eval(init_env)
+            print ast.eval(init_env).lispy_str()
         except SyntaxError as e:
             print 'Error: %s' % e
         except Exception as e:
