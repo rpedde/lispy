@@ -17,8 +17,18 @@ def set_loglevel(level):
     logging.getLogger().setLevel(getattr(logging, level.upper()))
     return 0
 
+
 def lisp_eval(env, arg):
     return arg.eval(env)
+
+
+def lisp_load(env, filename):
+    with open(filename, 'r') as f:
+        program = f.read()
+
+    ast = Parser(program).ast
+    return ast.eval(env)
+
 
 class Environment(object):
     def __init__(self, prev=None, env={}):
@@ -26,13 +36,14 @@ class Environment(object):
         self.prev = prev
 
     def get(self, symbol):
-        logging.debug('looking up symbol "%s"' % symbol)
+        logging.debug('Looking up symbol %s' % symbol)
 
         if not symbol in self.env:
             if self.prev is None:
                 # or... return a symbol type... ?
                 raise SyntaxError('Unknown symbol: %s' % symbol)
             else:
+                logging.debug('Not found in env %s.  Upwarding to %s' % (id(self), id(self.prev)))
                 return self.prev.get(symbol)
 
         return self.env[symbol]
@@ -148,12 +159,13 @@ class SExpr(Token):
         if isinstance(x[0], Symbol):
             if x[0].name == 'if':
                 (test, if_true, if_false) = x[1:]
-                result = if_true if test.eval(env) else if_false
+                result = if_true if test.eval(env).pyvalue(env) else if_false
                 return result.eval(env)
             if x[0].name == 'quote':
                 # should test arity
                 return x[1]
             if x[0].name == 'define':
+                logging.debug('defining %s' % x)
                 (symbol, value) = x[1:]
                 logging.debug('binding %s to %s' % (symbol.name, value.eval(env)))
                 global_env.set(symbol.name, value.eval(env), with_create = True)
@@ -222,7 +234,7 @@ class Constant(Token):
 
 class Parser(object):
     def __init__(self, str):
-        self.tokenlist = str.replace('(', ' ( ').replace(')', ' ) ').replace("'"," ' ").split()
+        self.tokenlist = str.replace('(', ' ( ').replace(')', ' ) ').replace("'"," ' ").replace('\n','').split()
         self.index=0
         self.ast = self.astize()
         
@@ -291,6 +303,8 @@ global_env = Environment(prev=None, env={
     '-': InternalFunction('-', lambda *x: reduce(operator.sub, x[1:], x[0])),
     '*': InternalFunction('*', lambda *x: reduce(operator.mul, x[1:], x[0])),
     '/': InternalFunction('/', lambda *x: reduce(operator.div, x[1:], x[0])),
+    'or': InternalFunction('or', lambda *x: reduce(operator.or_, x[1:], x[0])),
+    'and': InternalFunction('and', lambda *x: reduce(operator.and_, x[1:], x[0])),
     'car': InternalFunction('car', lambda x: x[0], translate_return=False),
     'cdr': InternalFunction('cdr', lambda x: SExpr(x[1:]), translate_return=False),
     'list': InternalFunction('list', lambda *x: SExpr(list(x)), False),
@@ -303,7 +317,8 @@ global_env = Environment(prev=None, env={
     'symbol?': InternalFunction('symbol?', lambda x: isinstance(x, Symbol), False),
     'exit': InternalFunction('exit', lambda: sys.stdout.write("Bye!\n") or sys.exit(0)),
     'debug': InternalFunction('debug', set_loglevel),
-    'eval': InternalFunction('eval', lisp_eval, False, False, True)
+    'eval': InternalFunction('eval', lisp_eval, False, False, True),
+    'load': InternalFunction('load', lisp_load, translate_return=False, want_environment=True)
 })
 
 
