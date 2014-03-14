@@ -226,16 +226,16 @@ class Parser(object):
             return Constant(float(token))
         except ValueError:
             pass
-
+        
         if token.startswith('"') and token.endswith('"'):
             return Constant(token[1:-1])
 
         return Symbol(token)
 
 init_env = Environment({
-    '+': InternalFunction('+', lambda *x: reduce(operator.add, x, 0)),
+    '+': InternalFunction('+', lambda *x: reduce(operator.add, x[1:], x[0])),
     '-': InternalFunction('-', lambda *x: reduce(operator.sub, x[1:], x[0])),
-    '*': InternalFunction('*', lambda *x: reduce(operator.mul, x, 1)),
+    '*': InternalFunction('*', lambda *x: reduce(operator.mul, x[1:], x[0])),
     '/': InternalFunction('/', lambda *x: reduce(operator.div, x[1:], x[0])),
     'car': InternalFunction('car', lambda x: x[0], translate_return=False),
     'cdr': InternalFunction('cdr', lambda x: SExpr(x[1:]), translate_return=False),
