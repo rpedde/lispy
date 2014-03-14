@@ -88,7 +88,7 @@ class LambdaFunction(Function):
         self.name = 'lambda#%s' % id(self)
         self.formals = formals
         self.fn = fn
-        self.env = env.flat_clone()
+        self.env = env
 
     def __str__(self):
         return '%s(%s)' % (self.name, ' '.join(self.formals))
@@ -101,7 +101,7 @@ class LambdaFunction(Function):
             raise SyntaxError('Function %s expects %d args, got %d' % (
                 len(self.formals), len(args)))
 
-        lambda_env = env.extend(self.env.env).extend(dict(zip(self.formals, args)))
+        lambda_env = env.extend(self.env.env).extend(dict(zip(self.formals, [x.eval(env) for x in args])))
         return self.fn.eval(lambda_env)
 
 
@@ -172,8 +172,22 @@ class SExpr(Token):
                 return True
             if x[0].name == 'set!':
                 (symbol, value) = x[1:]
-                env.set(symbol.name, value, with_create = False)
+                env.set(symbol.name, value.eval(env), with_create = False)
                 return True
+            if x[0].name == 'let':
+                (pairslist, expr) = x[1:]
+                new_env = env.extend()
+                for pair in pairslist.pyvalue(env):
+                    (key, value) = pair.pyvalue(env)
+                    new_env.set(key.name, value.eval(env), with_create = True)
+                return expr.eval(new_env)
+            if x[0].name == 'let*':
+                (pairslist, expr) = x[1:]
+                new_env = env.extend()
+                for pair in pairslist.pyvalue(env):
+                    (key, value) = pair.pyvalue(env)
+                    new_env.set(key.name, value.eval(new_env), with_create = True)
+                return expr.eval(new_env)
             if x[0].name == 'lambda':
                 (formals, expr) = x[1:]
                 return LambdaFunction(env, [x.name for x in formals.value], expr)
@@ -307,7 +321,7 @@ global_env = Environment(prev=None, env={
     'and': InternalFunction('and', lambda *x: reduce(operator.and_, x[1:], x[0])),
     'car': InternalFunction('car', lambda x: x[0], translate_return=False),
     'cdr': InternalFunction('cdr', lambda x: SExpr(x[1:]), translate_return=False),
-    'list': InternalFunction('list', lambda *x: SExpr(list(x)), False),
+    'list': InternalFunction('list', lambda *x: SExpr(list(x)), translate_types=False, translate_return=False),
     '>': InternalFunction('>', operator.gt),
     '<': InternalFunction('<', operator.lt),
     '>=': InternalFunction('>=', operator.ge),
