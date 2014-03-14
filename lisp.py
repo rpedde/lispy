@@ -40,11 +40,25 @@ class Environment(object):
     def set(self, symbol, value, with_create = False):
         logging.debug('setting symbol "%s"' % symbol)
         if not symbol in self.env and not with_create:
-            if self.pref is None:
+            if self.prev is None:
                 raise SyntaxError('Unknown symbol: %s' % symbol)
             else:
                 return self.prev.set(symbol, value, with_create)
+
         self.env[symbol] = value
+
+    def flat_clone(self):
+        reverse_list = []
+        current = self
+        while(current != None):
+            reverse_list.insert(0, current)
+            current = current.prev
+
+        cloned_dict = {}
+        for env in reverse_list:
+            cloned_dict.update(copy.deepcopy(env.env))
+
+        return Environment(prev=None, env=cloned_dict)
 
     def extend(self, extended_environment={}):
         return Environment(prev=self, env=extended_environment)
@@ -56,6 +70,28 @@ class Token(object):
 
 class Function(object):
     pass
+
+
+class LambdaFunction(Function):
+    def __init__(self, env, formals, fn):
+        self.name = 'lambda#%s' % id(self)
+        self.formals = formals
+        self.fn = fn
+        self.env = env.flat_clone()
+
+    def __str__(self):
+        return '%s(%s)' % (self.name, ' '.join(self.formals))
+
+    def lispy_str(self):
+        return '#fn#'
+
+    def eval(self, env, *args):
+        if len(args) != len(self.formals):
+            raise SyntaxError('Function %s expects %d args, got %d' % (
+                len(self.formals), len(args)))
+
+        lambda_env = env.extend(self.env.env).extend(dict(zip(self.formals, args)))
+        return self.fn.eval(lambda_env)
 
 
 class InternalFunction(Function):
@@ -119,20 +155,25 @@ class SExpr(Token):
                 return x[1]
             if x[0].name == 'define':
                 (symbol, value) = x[1:]
-                global_env.set(symbol.name, value, with_create = True)
-                return value
+                logging.debug('binding %s to %s' % (symbol.name, value.eval(env)))
+                global_env.set(symbol.name, value.eval(env), with_create = True)
+                return True
             if x[0].name == 'set!':
                 (symbol, value) = x[1:]
                 env.set(symbol.name, value, with_create = False)
-                return value
+                return True
+            if x[0].name == 'lambda':
+                (formals, expr) = x[1:]
+                return LambdaFunction(env, [x.name for x in formals.value], expr)
             elif x[0].name == '':
                 pass
 
-        if isinstance(x[0], Symbol):
-            fn = x[0].eval(env)
+        fn = x[0].eval(env)
+        # if isinstance(x[0], Symbol):
+        #     fn = x[0].eval(env)
 
         if not isinstance(fn, Function):
-            raise SyntaxError('%s: Not a function' % x[0])
+            raise SyntaxError('%s: %s is not a function' % (x[0], x[0].__class__.__name__))
 
         return fn.eval(env, *self.value[1:])
         
@@ -281,7 +322,12 @@ if __name__ == "__main__":
         try:
             ast = Parser(line).ast
             logging.debug(ast)
-            print ast.eval(global_env).lispy_str()
+
+            result = ast.eval(global_env)
+            if getattr(result, 'lispy_str', None) is not None:
+                print result.lispy_str()
+            else:
+                print '%s' % result
         except SyntaxError as e:
             print 'Error: %s' % e
         except Exception as e:
