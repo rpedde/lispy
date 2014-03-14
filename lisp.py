@@ -21,28 +21,33 @@ def lisp_eval(env, arg):
     return arg.eval(env)
 
 class Environment(object):
-    def __init__(self, env={}):
+    def __init__(self, prev=None, env={}):
         self.env = env
+        self.prev = prev
 
     def get(self, symbol):
         logging.debug('looking up symbol "%s"' % symbol)
 
-        if symbol in self.env:
-            return self.env[symbol]
+        if not symbol in self.env:
+            if self.prev is None:
+                # or... return a symbol type... ?
+                raise SyntaxError('Unknown symbol: %s' % symbol)
+            else:
+                return self.prev.get(symbol)
 
-        # what to do?
-        raise SyntaxError('Unknown symbol: %s' % symbol)
+        return self.env[symbol]
 
-    def set(self, symbol, value):
-        env[symbol] = value
+    def set(self, symbol, value, with_create = False):
+        logging.debug('setting symbol "%s"' % symbol)
+        if not symbol in self.env and not with_create:
+            if self.pref is None:
+                raise SyntaxError('Unknown symbol: %s' % symbol)
+            else:
+                return self.prev.set(symbol, value, with_create)
+        self.env[symbol] = value
 
-    def unset(self, symbol):
-        del env[symbol]
-
-    def extend(self, extended_environment):
-        new_env = copy.deepcopy(self.env)
-        new_env.update(extended_environment)
-        return Environment(new_env)
+    def extend(self, extended_environment={}):
+        return Environment(prev=self, env=extended_environment)
 
 
 class Token(object):
@@ -106,12 +111,20 @@ class SExpr(Token):
 
         if isinstance(x[0], Symbol):
             if x[0].name == 'if':
-                (_, test, if_true, if_false) = x
+                (test, if_true, if_false) = x[1:]
                 result = if_true if test.eval(env) else if_false
                 return result.eval(env)
             if x[0].name == 'quote':
                 # should test arity
                 return x[1]
+            if x[0].name == 'define':
+                (symbol, value) = x[1:]
+                global_env.set(symbol.name, value, with_create = True)
+                return value
+            if x[0].name == 'set!':
+                (symbol, value) = x[1:]
+                env.set(symbol.name, value, with_create = False)
+                return value
             elif x[0].name == '':
                 pass
 
@@ -232,7 +245,7 @@ class Parser(object):
 
         return Symbol(token)
 
-init_env = Environment({
+global_env = Environment(prev=None, env={
     '+': InternalFunction('+', lambda *x: reduce(operator.add, x[1:], x[0])),
     '-': InternalFunction('-', lambda *x: reduce(operator.sub, x[1:], x[0])),
     '*': InternalFunction('*', lambda *x: reduce(operator.mul, x[1:], x[0])),
@@ -268,7 +281,7 @@ if __name__ == "__main__":
         try:
             ast = Parser(line).ast
             logging.debug(ast)
-            print ast.eval(init_env).lispy_str()
+            print ast.eval(global_env).lispy_str()
         except SyntaxError as e:
             print 'Error: %s' % e
         except Exception as e:
