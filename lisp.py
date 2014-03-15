@@ -6,6 +6,7 @@ import readline
 import sys
 import logging
 import traceback
+import re
 
 DEBUG=False
 
@@ -23,11 +24,33 @@ def lisp_eval(env, arg):
 
 
 def lisp_load(env, filename):
-    with open(filename, 'r') as f:
-        program = f.read()
+    try:
+        with open(filename, 'r') as f:
+            program = f.read()
+    except:
+        raise SyntaxError('File open error on %s' % filename)
 
-    ast = Parser(program).ast
-    return ast.eval(env)
+    parser = Parser(program)
+    while not parser.EOF():
+        term = parser.read()
+        try:
+            term.eval(env)
+        except Exception as e:
+            raise SyntaxError('Eval error: %s' % e)
+    return None
+
+
+def lisp_format(env, format, *args):
+    split = format.split('~A')
+    result = split[0]
+    split.pop(0)
+    args = list(args)
+    while(len(split)):
+        result += str(args[0])
+        args.pop(0)
+        result += split[0]
+        split.pop(0)
+    return result
 
 
 class Environment(object):
@@ -169,11 +192,11 @@ class SExpr(Token):
                 (symbol, value) = x[1:]
                 logging.debug('binding %s to %s' % (symbol.name, value.eval(env)))
                 global_env.set(symbol.name, value.eval(env), with_create = True)
-                return True
+                return None
             if x[0].name == 'set!':
                 (symbol, value) = x[1:]
                 env.set(symbol.name, value.eval(env), with_create = False)
-                return True
+                return None
             if x[0].name == 'let':
                 (pairslist, expr) = x[1:]
                 new_env = env.extend()
@@ -188,11 +211,13 @@ class SExpr(Token):
                     (key, value) = pair.pyvalue(env)
                     new_env.set(key.name, value.eval(new_env), with_create = True)
                 return expr.eval(new_env)
+            if x[0].name == 'begin':
+                for expr in x[1:]:
+                    result = expr.eval(env)
+                return result
             if x[0].name == 'lambda':
                 (formals, expr) = x[1:]
                 return LambdaFunction(env, [x.name for x in formals.value], expr)
-            elif x[0].name == '':
-                pass
 
         fn = x[0].eval(env)
         # if isinstance(x[0], Symbol):
@@ -230,87 +255,89 @@ class Constant(Token):
     def __init__(self, value):
         self.value = value
 
-    def __repr__(self):
-        return 'Const: "%r"' % self.value
-
     def lispy_str(self):
-        return '%s' % self.value
+        return "%s" % self.value
 
     def pyvalue(self, env):
-        # if isinstance(self.value, Token):
-        #     return self.value.pyvalue(env)
-
         return self.value
 
     def eval(self, env):
         return self
 
 
+class ConstantString(Constant):
+    def __repr__(self):
+        return 'String: "%s"' % self.value
+
+
+class ConstantInt(Constant):
+    def __repr__(self):
+        return 'Int: %d' % self.value
+
+
+class ConstantFloat(Constant):
+    def __repr__(self):
+        return 'Float: %f' % self.value
+
+
 class Parser(object):
     def __init__(self, str):
-        self.tokenlist = str.replace('(', ' ( ').replace(')', ' ) ').replace("'"," ' ").replace('\n','').split()
-        self.index=0
-        self.ast = self.astize()
+        self.scanner = re.Scanner([
+            (r'[0-9]+', self.int_type),
+            (r'[0-9]+.[0-9]+', self.float_type),
+            (r'[ \t\n]+', None),
+            (r'"([^"\\]*(?:\\.[^"\\]*)*)"', self.string_type),
+            (r'\(', self.baretoken),
+            (r'\)', self.baretoken),
+            (r'\'', self.baretoken),
+            (r'[^ \t\n\(\)\']+', self.symbol_type)
+        ])
         
-    def next(self):
-        if self.index + 1 > len(self.tokenlist):
-            raise SyntaxError('Unexpected data beyond end of program')
+        self.tokens, self.remainder = self.tokenize(str)
 
-        result, self.index = self.tokenlist[self.index], self.index + 1
-        return result
-    
+    # token building helpers
+    def int_type(self, scanner, token):
+        return 'CONST', ConstantInt(int(token))
+
+    def float_type(self, scanner, token):
+        return 'CONST', ConstantFloat(float(token))
+        
+    def string_type(self, scanner, token):
+        return 'CONST', ConstantString(token[1:-1].replace('\\"', '"'))
+
+    def baretoken(self, scanner, token):
+        return token, token
+
+    def symbol_type(self, scanner, token):
+        return 'SYMBOL', Symbol(token)
+        
+    def tokenize(self, str):
+        tokens, remainder = self.scanner.scan(str)
+        tokens.append(('EOF', None))
+        return tokens, remainder
+
+    def peek(self):
+        return self.tokens[0]
+
+    def scan(self):
+        if self.tokens[0][0] == 'EOF':
+            raise SyntaxError('Premature end of line.  (Missing paren?)')
+
+        return self.tokens.pop(0)
+        
     def EOF(self):
-        return (self.index + 1 > len(self.tokenlist))
+        return self.peek()[0] == 'EOF'
 
-    def astize(self):
-        token = self.next()
+    def read(self):
+        token, val = self.scan()
         if token == '(':
-            ast = SExpr(self.read_list())
-        else:
-            ast = self.wrap_token(token)
+            ary = []
+            while self.peek()[0] != ')':
+                ary.append(self.read())
+            self.scan()
+            val = SExpr(ary)
+        return val
 
-        if not self.EOF():
-            raise SyntaxError('Unexpect data beyond EOF')
-
-        return ast
-
-    def read_list(self):
-        result = []
-        token = self.next()
-
-        while(token != ')'):
-            if token == "'":
-                new_sexpr = [ Symbol('quote') ]
-    
-                token = self.next()
-                if token == '(':
-                    new_sexpr.append(SExpr(self.read_list()))
-                else:
-                    new_sexpr.append(self.wrap_token(token))
-                result.append(SExpr(new_sexpr))
-
-            elif(token == '('):
-                result.append(SExpr(self.read_list()))
-            else:
-                result.append(self.wrap_token(token))
-            token = self.next()
-        return result
-
-    def wrap_token(self, token):
-        try:
-            return Constant(int(token))
-        except ValueError:
-            pass
-
-        try:
-            return Constant(float(token))
-        except ValueError:
-            pass
-        
-        if token.startswith('"') and token.endswith('"'):
-            return Constant(token[1:-1])
-
-        return Symbol(token)
 
 global_env = Environment(prev=None, env={
     '+': InternalFunction('+', lambda *x: reduce(operator.add, x[1:], x[0])),
@@ -329,10 +356,12 @@ global_env = Environment(prev=None, env={
     '=': InternalFunction('=', operator.eq),
     'list?': InternalFunction('list?', lambda x: isinstance(x, SExpr), False),
     'symbol?': InternalFunction('symbol?', lambda x: isinstance(x, Symbol), False),
-    'exit': InternalFunction('exit', lambda: sys.stdout.write("Bye!\n") or sys.exit(0)),
+    'exit': InternalFunction('exit', lambda: sys.stdout.write('Bye!\n') or sys.exit(0)),
     'debug': InternalFunction('debug', set_loglevel),
     'eval': InternalFunction('eval', lisp_eval, False, False, True),
-    'load': InternalFunction('load', lisp_load, translate_return=False, want_environment=True)
+    'load': InternalFunction('load', lisp_load, translate_return=False, want_environment=True),
+    'print': InternalFunction('print', lambda x: sys.stdout.write('%s' % x) or None),
+    'format': InternalFunction('format', lisp_format, translate_types=True, translate_return=True, want_environment=True)
 })
 
 
@@ -349,14 +378,20 @@ if __name__ == "__main__":
             sys.exit(0)
 
         try:
-            ast = Parser(line).ast
-            logging.debug(ast)
+            prog = Parser(line)
+            logging.debug(prog.tokens)
 
-            result = ast.eval(global_env)
-            if getattr(result, 'lispy_str', None) is not None:
-                print result.lispy_str()
-            else:
-                print '%s' % result
+            while not prog.EOF():
+                term = prog.read()
+                logging.debug(term)
+
+                result = term.eval(global_env)
+                if result is not None:
+                    if getattr(result, 'lispy_str', None) is not None:
+                        print result.lispy_str()
+                    else:
+                        print '%s' % result
+
         except SyntaxError as e:
             print 'Error: %s' % e
         except Exception as e:
