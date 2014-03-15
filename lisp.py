@@ -303,7 +303,7 @@ class Parser(object):
         return 'CONST', ConstantFloat(float(token))
         
     def string_type(self, scanner, token):
-        return 'CONST', ConstantString(token[1:-1].replace('\\"', '"'))
+        return 'CONST', ConstantString(token[1:-1].replace('\\"', '"').replace('\\n', '\n'))
 
     def baretoken(self, scanner, token):
         return token, token
@@ -360,7 +360,7 @@ global_env = Environment(prev=None, env={
     'debug': InternalFunction('debug', set_loglevel),
     'eval': InternalFunction('eval', lisp_eval, False, False, True),
     'load': InternalFunction('load', lisp_load, translate_return=False, want_environment=True),
-    'print': InternalFunction('print', lambda x: sys.stdout.write('%s' % x) or None),
+    'print': InternalFunction('print', lambda x: sys.stdout.write('%s' % x), translate_return=False),
     'format': InternalFunction('format', lisp_format, translate_types=True, translate_return=True, want_environment=True)
 })
 
