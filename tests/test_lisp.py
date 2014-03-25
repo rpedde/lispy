@@ -84,6 +84,37 @@ class TestLisp:
     def t2030_test_sub_arity(self):
         assert(self.eval_expr('(- 8 2 2)') == 4)
 
+    def t2040_test_floatq(self):
+        assert(self.eval_expr('(float? 1.1)'))
+
+    def t2050_test_floatq(self):
+        assert(self.eval_expr('(float? 1)') == False)
+
+    def t2060_test_intq(self):
+        assert(self.eval_expr('(int? 1)'))
+
+    def t2070_test_intq(self):
+        assert(self.eval_expr('(int? "hi")') == False)
+
+    def t2080_test_stringq(self):
+        assert(self.eval_expr('(string? "hi")'))
+
+    def t2090_test_stringq(self):
+        assert(self.eval_expr('(string? 1)') == False)
+
+    def t2100_test_symbolq(self):
+        assert(self.eval_expr('(symbol? (quote howdy))'))
+
+    def t2110_test_symbolq(self):
+        assert(self.eval_expr('(symbol? 1)') == False)
+
+    def t2120_test_listq(self):
+        assert(self.eval_expr('(list? (quote (1 2 3)))'))
+
+    def t2130_test_listq(self):
+        assert(self.eval_expr('(list? 1)') == False)
+
+
 
 
     
