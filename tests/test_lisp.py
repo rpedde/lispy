@@ -114,7 +114,20 @@ class TestLisp:
     def t2130_test_listq(self):
         assert(self.eval_expr('(list? 1)') == False)
 
+    def t2140_test_mult(self):
+        assert(self.eval_expr('(* 1 2)') == 2)
 
+    def t2150_test_mult_arity(self):
+        assert(self.eval_expr('(* 2 2 2)') == 8)
 
+    def t2160_test_div(self):
+        assert(self.eval_expr('(/ 4 2)') == 2)
 
-    
+    def t2170_test_div_arity(self):
+        assert(self.eval_expr('(/ 4 2 2)') == 1)
+
+    def t2180_test_car(self):
+        assert(self.eval_expr('(car (quote (1 2 3)))') == 1)
+
+    def t2190_test_cdr(self):
+        assert(self.eval_expr("(car (cdr '(1 2 3)))") == 2)
