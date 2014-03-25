@@ -292,8 +292,8 @@ class ConstantFloat(Constant):
 class Parser(object):
     def __init__(self, str):
         self.scanner = re.Scanner([
+            (r'[0-9]+\.[0-9]+', self.float_type),
             (r'[0-9]+', self.int_type),
-            (r'[0-9]+.[0-9]+', self.float_type),
             (r'[ \t\n]+', None),
             (r'"([^"\\]*(?:\\.[^"\\]*)*)"', self.string_type),
             (r'\(', self.baretoken),
