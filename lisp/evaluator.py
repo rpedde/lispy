@@ -298,8 +298,11 @@ class Parser(object):
             (r'"([^"\\]*(?:\\.[^"\\]*)*)"', self.string_type),
             (r'\(', self.baretoken),
             (r'\)', self.baretoken),
-            (r'\'', self.baretoken),
-            (r'[^ \t\n\(\)\']+', self.symbol_type)
+            (r'\'', self.baretoken),  # quote
+            (r',', self.baretoken),   # unquote
+            (r'`', self.baretoken),   # quasiquote
+            (r'@', self.baretoken),   # unquote-splicing
+            (r'[^ \t\n\(\)\'`@,]+', self.symbol_type)
         ])
         
         self.tokens, self.remainder = self.tokenize(str)
@@ -339,7 +342,13 @@ class Parser(object):
 
     def read(self):
         token, val = self.scan()
-        if token == '(':
+        if token in ",`'@":
+            val = SExpr([{"'": Symbol('quote'),
+                          '`': Symbol('quasiquote'),
+                          ',': Symbol('unquote'),
+                          '@': Symbol('unquote-splicing')}[token],
+                         self.read() ])
+        elif token == '(':
             ary = []
             while self.peek()[0] != ')':
                 ary.append(self.read())
@@ -375,40 +384,4 @@ def generate_global_env():
 })
 
 global_env = generate_global_env()
-
-
-# testing
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.ERROR, format='%(message)s')
-    readline.parse_and_bind('tab: complete')
-
-    while True:
-        try:
-            line = raw_input("lispy> ")
-        except EOFError:
-            print "\nBye!"
-            sys.exit(0)
-
-        try:
-            prog = Parser(line)
-            logging.debug(prog.tokens)
-
-            while not prog.EOF():
-                term = prog.read()
-                logging.debug(term)
-
-                result = term.eval(global_env)
-                if result is not None:
-                    if getattr(result, 'lispy_str', None) is not None:
-                        print result.lispy_str()
-                    else:
-                        print '%s' % result
-
-        except SyntaxError as e:
-            print 'Error: %s' % e
-        except Exception as e:
-            exc_type, exc_value, exc_traceback = sys.exc_info()
-            print 'Internal Error: %s' % e
-            for entry in traceback.extract_tb(exc_traceback):
-                print 'Line %d: %s' % (entry[1], entry[3])
 

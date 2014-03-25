@@ -65,12 +65,25 @@ class TestLisp:
     def t1070_test_let_shadows_globals(self):
         assert(self.eval_expr('(define x 1)(let ((x 2)) ((lambda () x)))') == 2)
 
+    def t1080_test_eval_quote(self):
+        assert(self.eval_expr('(eval (quote (+ 1 2)))') == 3)
+
+    def t1090_test_quote_shortcut(self):
+        assert(self.eval_expr("(eval '(+ 1 2))") == 3)
+
     # test built-in functions
     def t2000_test_add_int(self):
         assert(self.eval_expr('(+ 1 2)') == 3)
 
-    def t2000_test_add_arity(self):
+    def t2010_test_add_arity(self):
         assert(self.eval_expr('(+ 1 1 1 1)') == 4)
+
+    def t2020_test_sub_int(self):
+        assert(self.eval_expr('(- 8 2)') == 6)
+
+    def t2030_test_sub_arity(self):
+        assert(self.eval_expr('(- 8 2 2)') == 4)
+
 
 
     
