@@ -71,6 +71,33 @@ class TestLisp:
     def t1090_test_quote_shortcut(self):
         assert(self.eval_expr("(eval '(+ 1 2))") == 3)
 
+    def t1100_test_qq_shortcut(self):
+        assert(self.eval_expr("(eval `(+ 1 2))") == 3)
+
+    def t1110_test_qq_and_unquote(self):
+        assert(self.eval_expr("(define x 3)(eval `(+ 1 ,x))") == 4)
+
+    def t1120_test_qq_and_unquote_deep(self):
+        assert(self.eval_expr("(define x 3)(eval `(+ 1 (+ 1 ,x)))") == 5)
+
+    @raises(SyntaxError)
+    def t1130_test_quote_arity(self):
+        self.eval_expr('(quote 1 2 3)')
+
+    @raises(SyntaxError)
+    def t1140_test_unquote_outside_qq(self):
+        self.eval_expr('(define x 3)(unquote x)')
+
+    def t1150_test_unquote_splicing(self):
+        assert(self.eval_expr("(define x '(1 2))(eval `(+ @x))") == 3)
+
+    def t1160_test_unquote_splicing_deep(self):
+        assert(self.eval_expr("(define x '(1 2))(eval `(+ 1 (+ @x)))") == 4)
+
+    @raises(SyntaxError)
+    def t1170_test_unquote_splicing_outside_qq(self):
+        self.eval_expr("(define x '(1 2))(unquote-splicing x)")
+
     # test built-in functions
     def t2000_test_add_int(self):
         assert(self.eval_expr('(+ 1 2)') == 3)
@@ -131,3 +158,5 @@ class TestLisp:
 
     def t2190_test_cdr(self):
         assert(self.eval_expr("(car (cdr '(1 2 3)))") == 2)
+
+    

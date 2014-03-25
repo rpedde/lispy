@@ -23,6 +23,32 @@ def lisp_eval(env, arg):
     return arg.eval(env)
 
 
+def lisp_quasiquote(env, expr):
+    # recursively parse the expr as a quoted expression, but dequoting (by eval)
+    # "unquote"-ed and "unquote-splicing"-ed terms
+    if isinstance(expr, SExpr):
+        if isinstance(expr.value[0], Symbol) and expr.value[0].name == 'unquote':
+            return expr.value[1].eval(env)
+        elif isinstance(expr.value[0], Symbol) and expr.value[0].name == 'unquote-splicing':
+            result = expr.value[1].eval(env)
+            if not isinstance(result, SExpr):
+                raise SyntaxError('unquote-splicing result is not a list')
+            return result.value
+        else:
+            result = []
+            for x in expr.value:
+                qq = lisp_quasiquote(env, x)
+                if isinstance(qq, list):
+                    result = result + qq
+                else:
+                    result.append(qq)
+            return SExpr(result)
+    else:
+        return expr
+
+def lisp_unquote(env, *expr):
+    raise SyntaxError("unquote invalid outside quasiquote")
+
 def lisp_load(env, filename):
     try:
         with open(filename, 'r') as f:
@@ -192,8 +218,16 @@ class SExpr(Token):
                 result = if_true if test.eval(env).pyvalue(env) else if_false
                 return result.eval(env)
             if x[0].name == 'quote':
-                # should test arity
+                if len(x) != 2:
+                    raise SyntaxError('wrong arity for "quote"')
                 return x[1]
+            if x[0].name == 'quasiquote':
+                if len(x) != 2:
+                    raise SyntaxError('wrong arity for "quasiquote"')
+                result = lisp_quasiquote(env, x[1])
+                if isinstance(result, list):
+                    return SExpr(result)
+                return result
             if x[0].name == 'define':
                 logging.debug('defining %s' % x)
                 (symbol, value) = x[1:]
@@ -383,7 +417,9 @@ def generate_global_env():
         'eval': InternalFunction('eval', lisp_eval, False, False, True),
         'load': InternalFunction('load', lisp_load, translate_return=False, want_environment=True),
         'print': InternalFunction('print', lambda x: sys.stdout.write('%s' % x), translate_return=False),
-        'format': InternalFunction('format', lisp_format, translate_types=True, translate_return=True, want_environment=True)
+        'format': InternalFunction('format', lisp_format, translate_types=True, translate_return=True, want_environment=True),
+        # 'quasiquote': InternalFunction('quasiquote', lisp_quasiquote, translate_types=False, translate_return=False, want_environment=True),
+        'unquote': InternalFunction('unquote', lisp_unquote)
 })
 
 global_env = generate_global_env()
