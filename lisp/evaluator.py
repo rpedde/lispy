@@ -20,10 +20,21 @@ def set_loglevel(level):
 
 
 def lisp_eval(env, arg):
+    """
+    this represent the eval function in lisp dialect
+    """
     return arg.eval(env)
 
 
 def lisp_quasiquote(env, expr):
+    """
+    Parser the expr as a quoted expression. Whenever encounter a dequote sign(,)
+    do an eval instead.
+
+    e.g. 
+    `(1 2 3 4 ,(+ 2 3)) will be parsed to '(1 2 3 4 5),
+    `(1 2 3 4 ,@(list 5 6 7 8)) will become '(1 2 3 4 5 6 7 8)
+    """
     # recursively parse the expr as a quoted expression, but dequoting (by eval)
     # "unquote"-ed and "unquote-splicing"-ed terms
     if isinstance(expr, SExpr):
@@ -50,6 +61,9 @@ def lisp_unquote(env, *expr):
     raise SyntaxError("unquote invalid outside quasiquote")
 
 def lisp_load(env, filename):
+    """
+    this represent the load function in lisp dialect
+    """
     try:
         with open(filename, 'r') as f:
             program = f.read()
@@ -80,11 +94,20 @@ def lisp_format(env, format, *args):
 
 
 class Environment(object):
+    """
+    The Environment class have a hash table as its lookup data structure,
+    and a pointer pointed to its parent environment. The top environment
+    has its prev set to None
+    """
     def __init__(self, prev=None, env={}):
         self.env = env
         self.prev = prev
 
     def get(self, symbol):
+        """
+        Lookup in the current environment. If the symbol does not exist.
+        Check its parent environment unitl it reaches the top environment.
+        """
         logging.debug('Looking up symbol %s' % symbol)
 
         if not symbol in self.env:
@@ -112,6 +135,9 @@ class Environment(object):
         self.env[symbol] = value
 
     def flat_clone(self):
+        """
+        This method does a deep copy of caller environment.
+        """
         reverse_list = []
         current = self
         while(current != None):
@@ -137,6 +163,9 @@ class Function(object):
 
 
 class LambdaFunction(Function):
+    """
+    This class represent lisp lambda expression: (lambda (args) body)
+    """
     def __init__(self, env, formals, fn):
         self.name = 'lambda#%s' % id(self)
         self.formals = formals
@@ -159,6 +188,9 @@ class LambdaFunction(Function):
 
 
 class InternalFunction(Function):
+    """
+    This class represents built-in operators such as +, -, *, /, list, car, cdr, etc
+    """
     def __init__(self, name, fn, translate_types=True, translate_return=True, want_environment=False):
         self.name = name
         self.fn = fn;
@@ -192,6 +224,9 @@ class InternalFunction(Function):
         return retval
 
 class SExpr(Token):
+    """
+    s-expression class
+    """
     def __init__(self, value):
         self.value = value
 
@@ -324,7 +359,11 @@ class ConstantFloat(Constant):
 
 
 class Parser(object):
+
     def __init__(self, str):
+        """
+        initialize tokens with theirs regular expression
+        """
         self.scanner = re.Scanner([
             (r'[0-9]+\.[0-9]+', self.float_type),
             (r'[0-9]+', self.int_type),
@@ -392,6 +431,9 @@ class Parser(object):
 
 
 def generate_global_env():
+    """
+    initialize top level environment
+    """
     return Environment(prev=None, env={
         '+': InternalFunction('+', lambda *x: reduce(operator.add, x[1:], x[0])),
         '-': InternalFunction('-', lambda *x: reduce(operator.sub, x[1:], x[0])),
